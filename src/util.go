@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"strings"
 )
 
 func stringInSlice(a string, list []string) bool {
@@ -40,4 +41,15 @@ func handleWarnErr(err error, args ...interface{}) bool {
 
 func handleInfoErr(err error, args ...interface{}) bool {
 	return _handleErrLevel(log.Infof, err, args...)
+}
+
+func getDestLogPrefix(d BackupDestination, contexts ...string) string {
+	if d.getTarget() == nil {
+		log.Fatalf("BackupDestination target is nil\n")
+	}
+	if len(contexts) > 0 {
+		return fmt.Sprintf("[%s][%s][%s]", d.getTarget().Name, d.getName(), strings.Join(contexts, "]["))
+	} else {
+		return fmt.Sprintf("[%s][%s]", d.getTarget().Name, d.getName())
+	}
 }

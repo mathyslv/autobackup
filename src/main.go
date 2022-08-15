@@ -40,11 +40,15 @@ func addFileToArchive(f string, t *BackupTarget, tw *tar.Writer) {
 	_, err = io.Copy(tw, fileHandle)
 	handleFatalErr(err, "Cannot copy content from file")
 	handleFatalErr(fileHandle.Close(), "Cannot close file")
-	log.Debugf("Adding file %s to archive\n", header.Name)
+	//log.Debugf("Adding file %s to archive\n", header.Name)
 }
 
 func buildArchive(t *BackupTarget) {
-	t.Archive = filepath.Join(t.TmpWorkdir, t.Name+".tar.gz")
+	archiveBasepath := filepath.Join(t.TmpWorkdir, t.Name)
+	if t.Config.DateSuffix {
+		archiveBasepath += "_" + time.Now().Format("02012006_150405")
+	}
+	t.Archive = archiveBasepath + ".tar.gz"
 	fileWriter, err := os.Create(t.Archive)
 	handleFatalErr(err, "Error when creating file")
 	defer func() { handleFatalErr(fileWriter.Close(), "Error when closing file writer") }()
@@ -58,27 +62,45 @@ func buildArchive(t *BackupTarget) {
 	for _, file := range t.Files {
 		addFileToArchive(file, t, tarWriter)
 	}
+}
 
+func createBackupTargetTempWorkdir(target *BackupTarget) {
+	dir, err := ioutil.TempDir(os.TempDir(), "autobackup_"+target.Name+"_")
+	handleFatalErr(err, "Cannot create temporary working directory")
+	log.Debugf("[%s] Created temporary working directory %s\n", target.Name, dir)
+	target.TmpWorkdir = dir
+}
+
+func deleteBackupTargetTempWorkdir(t *BackupTarget) {
+	err := os.RemoveAll(t.TmpWorkdir)
+	if err != nil {
+		handleFatalErr(err, "[%s] Error when deleting temporary working directory", t.Name)
+	} else {
+		log.Debugf("[%s] Deleted temporary working directory\n", t.Name)
+	}
 }
 
 func processBackupTarget(t *BackupTarget) {
 	createBackupTargetTempWorkdir(t)
+	defer deleteBackupTargetTempWorkdir(t)
 	t.Files = listBackupTargetFiles(t)
 	buildArchive(t)
-	for _, destination := range t.DestinationConfig {
-		destination.runBackup(t)
+	for _, d := range t.DestinationConfig {
+		d.runBackup(t)
+		if t.Config.KeepOnly > 0 {
+			d.cleanOldBackups(t)
+		}
 	}
 }
 
 func launchBackupTargetCron(c *cron.Cron, t *BackupTarget) cron.EntryID {
-	/*entryId, err := c.AddFunc(t.Config.Cron, func() {
+	entryId, err := c.AddFunc(t.Config.Cron, func() {
 		processBackupTarget(t)
-	})*/
+	})
 	processBackupTarget(t)
-	//handleFatalErr(err, "Cannot create cron job : %s\n", err)
-	log.Debugf("[%s] Cron : '%s' created\n", t.Name, t.Config.Cron)
-	//return entryId
-	return 0
+	handleFatalErr(err, "Cannot create cron job : %s\n", err)
+	log.Debugf("[%s] Backup target successfully configured", t.Name)
+	return entryId
 }
 
 func listBackupTargetFiles(target *BackupTarget) []string {
@@ -114,23 +136,6 @@ func listBackupTargetFiles(target *BackupTarget) []string {
 	return files
 }
 
-func createBackupTargetTempWorkdir(target *BackupTarget) {
-	dir, err := ioutil.TempDir(os.TempDir(), "autobackup_"+target.Name+"_")
-	handleFatalErr(err, "Cannot create temporary working directory")
-	log.Debugf("[%s] Created temporary working directory %s\n", target.Name, dir)
-	target.TmpWorkdir = dir
-}
-
-func deleteBackupTargetTempWorkdir(target *BackupTarget) {
-	err := os.RemoveAll(target.TmpWorkdir)
-
-	if err != nil {
-		handleFatalErr(err, "[%s] Error when deleting temporary working directory", target.Name)
-	} else {
-		log.Debugf("[%s] Deleted temporary working directory\n", target.TmpWorkdir)
-	}
-}
-
 func main() {
 
 	log.SetLevel(log.DebugLevel)
@@ -144,12 +149,6 @@ func main() {
 
 	cronRunner := cron.New()
 
-	defer func() {
-		for _, target := range backupTargets {
-			deleteBackupTargetTempWorkdir(&target)
-		}
-	}()
-
 	for _, backupTarget := range backupTargets {
 		log.Infof("Processing backup target '%s'\n", backupTarget.Name)
 		for _, destination := range backupTarget.Config.Destinations {
@@ -161,5 +160,6 @@ func main() {
 	}
 
 	cronRunner.Start()
+	log.Infoln("Ready")
 	time.Sleep(5 * time.Minute)
 }
