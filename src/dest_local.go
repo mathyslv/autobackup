@@ -35,7 +35,7 @@ func (d *BackupDestinationLocal) runBackup(t *BackupTarget) {
 	}
 	_, err := copyFile(t.Archive, localDestPath)
 	if !handleErr(err) {
-		log.Infof("%s Backup saved to %s\n", getDestLogPrefix(d), localDestPath)
+		log.Infoln(getDestLogPrefix(d), "Backup saved")
 	}
 }
 
@@ -50,7 +50,6 @@ func (d *BackupDestinationLocal) cleanOldBackups(t *BackupTarget) {
 		}
 		match, _ := regexp.Match("gitlab-mathyslv_[0-9]{8}_[0-9]{6}.tar.gz", []byte(info.Name()))
 		if match {
-			log.Debugf(info.Name())
 			files = append(files, info)
 		}
 		return nil
@@ -65,9 +64,9 @@ func (d *BackupDestinationLocal) cleanOldBackups(t *BackupTarget) {
 	}
 	for i := 0; i < len(files)-t.Config.KeepOnly; i++ {
 		handleErr(os.Remove(filepath.Join(d.Directory, files[i].Name())))
-		log.Debugf("Removed old backup file '%s'\n", filepath.Join(d.Directory, files[i].Name()))
+		log.Debugf("%s Removed old backup file '%s'\n", getDestLogPrefix(d), filepath.Join(d.Directory, files[i].Name()))
 	}
-	log.Infof("%s Cleaned old backups", getDestLogPrefix(d))
+	log.Infoln(getDestLogPrefix(d), "Cleaned old backups")
 }
 
 func (d *BackupDestinationLocal) getName() string {

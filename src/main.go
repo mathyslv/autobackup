@@ -62,6 +62,7 @@ func buildArchive(t *BackupTarget) {
 	for _, file := range t.Files {
 		addFileToArchive(file, t, tarWriter)
 	}
+	log.Infof("[%s] Created archive '%s'\n", t.Name, filepath.Base(t.Archive))
 }
 
 func createBackupTargetTempWorkdir(target *BackupTarget) {

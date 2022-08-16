@@ -107,11 +107,9 @@ func (d *BackupDestinationGcp) cleanOldBackups(t *BackupTarget) {
 		if handleErr(objectHandle.Delete(context.TODO())) {
 			return
 		}
-		log.Debugf("Removed old backup file '%s'\n", objectsAttrs[i].Name)
+		log.Debugf("%s Removed old backup object '%s'\n", getDestLogPrefix(d), objectsAttrs[i].Name)
 	}
-	log.Infof("%s Cleaned old backups", getDestLogPrefix(d))
-
-	log.Infof("%s Clean old backups", getDestLogPrefix(d))
+	log.Infoln(getDestLogPrefix(d), "Cleaned old backups")
 }
 
 func (d *BackupDestinationGcp) getName() string {
