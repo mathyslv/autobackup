@@ -1,7 +1,5 @@
 package main
 
-var DestinationList = []string{"aws", "local"}
-
 type BackupTargetConfig struct {
 	Type                      string   `mapstructure:"type"`
 	Path                      string   `mapstructure:"path"`
@@ -32,4 +30,10 @@ type BackupTarget struct {
 	Files             []string
 	Config            BackupTargetConfig
 	DestinationConfig []BackupDestination
+}
+
+var parseConfigFnMap = map[string]func(string, *BackupTarget){
+	"local": parseConfigLocalDestination,
+	"aws":   parseConfigAwsDestination,
+	"gcp":   parseConfigGcpDestination,
 }

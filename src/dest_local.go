@@ -2,6 +2,7 @@ package main
 
 import (
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,16 @@ type BackupDestinationLocal struct {
 
 func NewBackupDestinationLocal() *BackupDestinationLocal {
 	return &BackupDestinationLocal{}
+}
+
+func parseConfigLocalDestination(unmarshalKey string, t *BackupTarget) {
+	localDest := NewBackupDestinationLocal()
+	handleFatalErr(
+		viper.UnmarshalKey(unmarshalKey, &localDest),
+		"Cannot parse local backup destination %s\n",
+		unmarshalKey)
+	localDest.Directory = parseTilde(localDest.Directory)
+	t.DestinationConfig = append(t.DestinationConfig, localDest)
 }
 
 func (d *BackupDestinationLocal) runBackup(t *BackupTarget) {

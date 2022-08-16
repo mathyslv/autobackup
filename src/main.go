@@ -151,15 +151,12 @@ func main() {
 
 	for _, backupTarget := range backupTargets {
 		log.Infof("Processing backup target '%s'\n", backupTarget.Name)
-		for _, destination := range backupTarget.Config.Destinations {
-			if !stringInSlice(destination, DestinationList) {
-
-			}
-		}
+		//nextTime := cronexpr.MustParse(backupTarget.Config.Cron).Next(time.Now())
+		//log.Infof("[%s] Next tick of %s in %dh%d (%s)", backupTarget.Name, backupTarget.Config.Cron, int(nextTime.Sub(time.Now()).Hours()), int(nextTime.Sub(time.Now()).Minutes())%60, nextTime.Format("15:04 02/01/2006"))
 		launchBackupTargetCron(cronRunner, &backupTarget)
 	}
 
 	cronRunner.Start()
 	log.Infoln("Ready")
-	time.Sleep(5 * time.Minute)
+	time.Sleep(time.Duration(1<<63 - 1))
 }

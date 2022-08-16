@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"os"
 	"path/filepath"
 )
@@ -20,6 +21,21 @@ type BackupDestinationAws struct {
 
 func NewBackupDestinationAws() *BackupDestinationAws {
 	return &BackupDestinationAws{}
+}
+
+func parseConfigAwsDestination(unmarshalKey string, t *BackupTarget) {
+	awsDest := NewBackupDestinationAws()
+	handleFatalErr(
+		viper.UnmarshalKey(unmarshalKey, &awsDest),
+		"Cannot parse aws backup destination %s\n",
+		unmarshalKey)
+	if len(awsDest.Credentials) > 0 {
+		awsDest.Credentials = parseTilde(awsDest.Credentials)
+	}
+	if len(awsDest.Config) > 0 {
+		awsDest.Config = parseTilde(awsDest.Config)
+	}
+	t.DestinationConfig = append(t.DestinationConfig, awsDest)
 }
 
 func (d *BackupDestinationAws) runBackup(t *BackupTarget) {

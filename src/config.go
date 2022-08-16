@@ -1,45 +1,15 @@
 package main
 
 import (
-	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
-func parseConfigLocalDestination(unmarshalKey string, t *BackupTarget) {
-	localDest := NewBackupDestinationLocal()
-	handleFatalErr(
-		viper.UnmarshalKey(unmarshalKey, &localDest),
-		"Cannot parse local backup destination %s\n",
-		unmarshalKey)
-	localDest.Directory = parseTilde(localDest.Directory)
-	t.DestinationConfig = append(t.DestinationConfig, localDest)
-}
-
-func parseConfigAwsDestination(unmarshalKey string, t *BackupTarget) {
-	awsDest := NewBackupDestinationAws()
-	handleFatalErr(
-		viper.UnmarshalKey(unmarshalKey, &awsDest),
-		"Cannot parse aws backup destination %s\n",
-		unmarshalKey)
-	if len(awsDest.Credentials) > 0 {
-		awsDest.Credentials = parseTilde(awsDest.Credentials)
-	}
-	if len(awsDest.Config) > 0 {
-		awsDest.Config = parseTilde(awsDest.Config)
-	}
-	t.DestinationConfig = append(t.DestinationConfig, awsDest)
-}
-
 func parseConfigDestinations(key string, t *BackupTarget) {
 	for _, destination := range t.Config.Destinations {
-		unmarshalKey := fmt.Sprintf("%s.%s", key, destination)
-		switch destination {
-		case "local":
-			parseConfigLocalDestination(unmarshalKey, t)
-		case "aws":
-			parseConfigAwsDestination(unmarshalKey, t)
-		default:
+		if parseConfigFn, ok := parseConfigFnMap[destination]; ok {
+			parseConfigFn(key+"."+destination, t)
+		} else {
 			log.Warnf("[%s] Unknown backup destination '%s'\n", t.Name, destination)
 			continue
 		}
