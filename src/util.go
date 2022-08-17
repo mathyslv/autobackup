@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -52,4 +54,12 @@ func getDestLogPrefix(d BackupDestination, contexts ...string) string {
 	} else {
 		return fmt.Sprintf("[%s][%s]", d.getTarget().Name, d.getName())
 	}
+}
+
+func parseTilde(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		dirname, _ := os.UserHomeDir()
+		path = filepath.Join(dirname, path[2:])
+	}
+	return path
 }

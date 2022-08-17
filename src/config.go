@@ -17,7 +17,7 @@ func parseConfigDestinations(key string, t *BackupTarget) {
 	}
 }
 
-func parseConfig() []BackupTarget {
+func parseConfig() []*BackupTarget {
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			log.Fatalf("Config file '%s' not found\n", viper.ConfigFileUsed())
@@ -27,13 +27,14 @@ func parseConfig() []BackupTarget {
 	}
 	log.Infof("Configuration file : '%s'\n", viper.ConfigFileUsed())
 	autobackupConfig := viper.AllSettings()
-	var backupTargets []BackupTarget
+
+	var backupTargets []*BackupTarget
 	for key, _ := range autobackupConfig {
-		var backupTarget BackupTarget
+		backupTarget := new(BackupTarget)
 		handleFatalErr(viper.UnmarshalKey(key, &backupTarget.Config), "unable to decode into struct\n")
 		backupTarget.Config.Path = parseTilde(backupTarget.Config.Path)
 		backupTarget.Name = key
-		parseConfigDestinations(key, &backupTarget)
+		parseConfigDestinations(key, backupTarget)
 		backupTargets = append(backupTargets, backupTarget)
 	}
 	return backupTargets

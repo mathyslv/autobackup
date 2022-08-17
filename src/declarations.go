@@ -1,5 +1,10 @@
 package main
 
+import (
+	"context"
+	"time"
+)
+
 type BackupTargetConfig struct {
 	Type                      string   `mapstructure:"type"`
 	Path                      string   `mapstructure:"path"`
@@ -15,10 +20,18 @@ type BackupTargetConfig struct {
 	ExcludeDirs               []string `mapstructure:"exclude_dirs"`
 }
 
+type BackupItem struct {
+	Name string
+	Date time.Time
+}
+
 type BackupDestination interface {
-	runBackup(*BackupTarget)
-	cleanOldBackups(target *BackupTarget)
-	setTarget(target *BackupTarget)
+	init() bool
+	isReady() bool
+	runBackup()
+	buildBackupsList(context.Context) ([]BackupItem, error)
+	cleanOldBackups()
+	setTarget(*BackupTarget)
 	getName() string
 	getTarget() *BackupTarget
 }
@@ -27,6 +40,7 @@ type BackupTarget struct {
 	Name              string
 	TmpWorkdir        string
 	Archive           string
+	Ext               string
 	Files             []string
 	Config            BackupTargetConfig
 	DestinationConfig []BackupDestination

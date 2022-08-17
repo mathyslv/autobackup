@@ -1,69 +1,15 @@
 package main
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"github.com/robfig/cron/v3"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
-
-func parseTilde(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		dirname, _ := os.UserHomeDir()
-		path = filepath.Join(dirname, path[2:])
-	}
-	return path
-}
-
-func addFileToArchive(f string, t *BackupTarget, tw *tar.Writer) {
-	fileHandle, err := os.Open(f)
-	handleFatalErr(err, "Cannot open file")
-	info, err := fileHandle.Stat()
-	handleFatalErr(err, "Cannot stat file")
-	header, err := tar.FileInfoHeader(info, info.Name())
-	if t.Config.PreserveAbsoluteHierarchy {
-		header.Name = f
-	} else {
-		header.Name = strings.ReplaceAll(f, t.Config.Path, "")
-		if header.Name[0] == '/' {
-			header.Name = header.Name[1:]
-		}
-	}
-	handleFatalErr(tw.WriteHeader(header))
-	_, err = io.Copy(tw, fileHandle)
-	handleFatalErr(err, "Cannot copy content from file")
-	handleFatalErr(fileHandle.Close(), "Cannot close file")
-	//log.Debugf("Adding file %s to archive\n", header.Name)
-}
-
-func buildArchive(t *BackupTarget) {
-	archiveBasepath := filepath.Join(t.TmpWorkdir, t.Name)
-	if t.Config.DateSuffix {
-		archiveBasepath += "_" + time.Now().Format("02012006_150405")
-	}
-	t.Archive = archiveBasepath + ".tar.gz"
-	fileWriter, err := os.Create(t.Archive)
-	handleFatalErr(err, "Error when creating file")
-	defer func() { handleFatalErr(fileWriter.Close(), "Error when closing file writer") }()
-
-	gzipWriter := gzip.NewWriter(fileWriter)
-	defer func() { handleFatalErr(gzipWriter.Close(), "Error when closing gzip writer") }()
-
-	tarWriter := tar.NewWriter(gzipWriter)
-	defer func() { handleFatalErr(tarWriter.Close(), "Error when closing tar writer") }()
-
-	for _, file := range t.Files {
-		addFileToArchive(file, t, tarWriter)
-	}
-	log.Infof("[%s] Created archive '%s'\n", t.Name, filepath.Base(t.Archive))
-}
 
 func createBackupTargetTempWorkdir(target *BackupTarget) {
 	dir, err := ioutil.TempDir(os.TempDir(), "autobackup_"+target.Name+"_")
@@ -87,9 +33,9 @@ func processBackupTarget(t *BackupTarget) {
 	t.Files = listBackupTargetFiles(t)
 	buildArchive(t)
 	for _, d := range t.DestinationConfig {
-		d.runBackup(t)
+		d.runBackup()
 		if t.Config.KeepOnly > 0 {
-			d.cleanOldBackups(t)
+			d.cleanOldBackups()
 		}
 	}
 }
@@ -98,9 +44,9 @@ func launchBackupTargetCron(c *cron.Cron, t *BackupTarget) cron.EntryID {
 	entryId, err := c.AddFunc(t.Config.Cron, func() {
 		processBackupTarget(t)
 	})
-	processBackupTarget(t)
+	//processBackupTarget(t)
 	handleFatalErr(err, "Cannot create cron job : %s\n", err)
-	log.Debugf("[%s] Backup target successfully configured", t.Name)
+	log.Infof("[%s] Backup target successfully configured", t.Name)
 	return entryId
 }
 
@@ -140,6 +86,7 @@ func listBackupTargetFiles(target *BackupTarget) []string {
 func main() {
 
 	log.SetLevel(log.DebugLevel)
+	log.SetReportCaller(true)
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("toml")
@@ -152,9 +99,26 @@ func main() {
 
 	for _, backupTarget := range backupTargets {
 		log.Infof("Processing backup target '%s'\n", backupTarget.Name)
+
+		backupTarget.Ext = getArchiveExt(backupTarget)
+
 		//nextTime := cronexpr.MustParse(backupTarget.Config.Cron).Next(time.Now())
 		//log.Infof("[%s] Next tick of %s in %dh%d (%s)", backupTarget.Name, backupTarget.Config.Cron, int(nextTime.Sub(time.Now()).Hours()), int(nextTime.Sub(time.Now()).Minutes())%60, nextTime.Format("15:04 02/01/2006"))
-		launchBackupTargetCron(cronRunner, &backupTarget)
+
+		var validIndex int
+		for _, d := range backupTarget.DestinationConfig {
+			if d.init() {
+				backupTarget.DestinationConfig[validIndex] = d
+				validIndex++
+			} else {
+				log.Warnf("%s Destination removed because initialization failed\n", getDestLogPrefix(d))
+			}
+		}
+		for invalidIndex := validIndex; invalidIndex < len(backupTarget.DestinationConfig); invalidIndex++ {
+			backupTarget.DestinationConfig[invalidIndex] = nil
+		}
+		backupTarget.DestinationConfig = backupTarget.DestinationConfig[:validIndex]
+		launchBackupTargetCron(cronRunner, backupTarget)
 	}
 
 	cronRunner.Start()

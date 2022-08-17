@@ -10,15 +10,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 )
 
 type BackupDestinationGcp struct {
-	target      *BackupTarget
-	Credentials string `mapstructure:"credentials"`
-	Folder      string `mapstructure:"folder"`
-	Bucket      string `mapstructure:"bucket"`
+	target       *BackupTarget
+	ready        bool
+	client       *storage.Client
+	bucketHandle *storage.BucketHandle
+	Credentials  string `mapstructure:"credentials"`
+	Folder       string `mapstructure:"folder"`
+	Bucket       string `mapstructure:"bucket"`
 }
 
 func NewBackupDestinationGcp() *BackupDestinationGcp {
@@ -37,19 +38,32 @@ func parseConfigGcpDestination(unmarshalKey string, t *BackupTarget) {
 	t.DestinationConfig = append(t.DestinationConfig, gcpDest)
 }
 
-func (d *BackupDestinationGcp) runBackup(t *BackupTarget) {
+func (d *BackupDestinationGcp) init() bool {
+	return false
+
+	client, err := storage.NewClient(context.TODO(), option.WithCredentialsFile(d.Credentials))
+	if handleErr(err) {
+		d.ready = false
+		return false
+	}
+	d.bucketHandle = client.Bucket(d.Bucket)
+	d.ready = true
+	return d.ready
+}
+
+func (d *BackupDestinationGcp) runBackup() {
 	client, err := storage.NewClient(context.TODO(), option.WithCredentialsFile(d.Credentials))
 	if handleErr(err) {
 		return
 	}
 	bucketHandle := client.Bucket(d.Bucket)
-	objectName := filepath.Base(t.Archive)
+	objectName := filepath.Base(d.target.Archive)
 	if len(d.Folder) > 0 {
 		objectName = filepath.Join(d.Folder, objectName)
 	}
 	obj := bucketHandle.Object(objectName)
 	bucketWriter := obj.NewWriter(context.TODO())
-	archiveHandle, err := os.Open(t.Archive)
+	archiveHandle, err := os.Open(d.target.Archive)
 	defer func() {
 		handleErr(archiveHandle.Close())
 	}()
@@ -66,48 +80,47 @@ func (d *BackupDestinationGcp) runBackup(t *BackupTarget) {
 	log.Infof("%s Backup uploaded to bucket %s\n", getDestLogPrefix(d), d.Bucket)
 }
 
-func (d *BackupDestinationGcp) cleanOldBackups(t *BackupTarget) {
+func (d *BackupDestinationGcp) buildBackupsList(ctx context.Context) ([]BackupItem, error) {
+	var backupItems []BackupItem
 
-	client, err := storage.NewClient(context.TODO(), option.WithCredentialsFile(d.Credentials))
-	if handleErr(err) {
-		return
-	}
-	bucketHandle := client.Bucket(d.Bucket)
 	query := &storage.Query{}
-	if handleErr(query.SetAttrSelection([]string{"Name"})) {
-		return
+	err := query.SetAttrSelection([]string{"Name"})
+	if err != nil {
+		return nil, err
 	}
-	objectIterator := bucketHandle.Objects(context.TODO(), query)
 
-	var objectsAttrs []*storage.ObjectAttrs
+	objectIterator := d.bucketHandle.Objects(ctx, query)
 	for {
 		objectAttrs, err := objectIterator.Next()
 		if err == iterator.Done {
 			break
-		} else if handleErr(err) {
-			return
+		} else if err != nil {
+			return nil, err
 		}
-		match, _ := regexp.Match("gitlab-mathyslv_[0-9]{8}_[0-9]{6}.tar.gz", []byte(objectAttrs.Name))
-		if match {
-			objectsAttrs = append(objectsAttrs, objectAttrs)
+		if doesBackupNameMatch(d.target, objectAttrs.Name) {
+			backupItems = append(backupItems, BackupItem{
+				Name: objectAttrs.Name,
+				Date: objectAttrs.Created,
+			})
 		}
 	}
+	return backupItems, nil
+}
 
-	if len(objectsAttrs) > 0 {
-		if t.Config.KeepOnly >= len(objectsAttrs) {
-			return
-		}
-		sort.SliceStable(objectsAttrs, func(i, j int) bool {
-			return objectsAttrs[i].Created.Before(objectsAttrs[j].Created)
-		})
+func (d *BackupDestinationGcp) cleanOldBackups() {
+	backupItems, err := d.buildBackupsList(context.TODO())
+
+	if handleErr(err) {
+		return
 	}
+	sortBackups(d.target, backupItems)
 
-	for i := 0; i < len(objectsAttrs)-t.Config.KeepOnly; i++ {
-		objectHandle := bucketHandle.Object(objectsAttrs[i].Name)
+	for i := 0; i < len(backupItems)-d.target.Config.KeepOnly; i++ {
+		objectHandle := d.bucketHandle.Object(backupItems[i].Name)
 		if handleErr(objectHandle.Delete(context.TODO())) {
 			return
 		}
-		log.Debugf("%s Removed old backup object '%s'\n", getDestLogPrefix(d), objectsAttrs[i].Name)
+		log.Debugf("%s Removed old backup object '%s'\n", getDestLogPrefix(d), backupItems[i].Name)
 	}
 	log.Infoln(getDestLogPrefix(d), "Cleaned old backups")
 }
@@ -122,4 +135,8 @@ func (d *BackupDestinationGcp) getTarget() *BackupTarget {
 
 func (d *BackupDestinationGcp) setTarget(ptr *BackupTarget) {
 	d.target = ptr
+}
+
+func (d *BackupDestinationGcp) isReady() bool {
+	return d.ready
 }
